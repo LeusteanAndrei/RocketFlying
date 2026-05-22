@@ -12,6 +12,10 @@ const rollValueEl = document.getElementById('rollValue');
 const pitchBarEl = document.getElementById('pitchBar');
 const rollBarEl = document.getElementById('rollBar');
 const sourceValueEl = document.getElementById('sourceValue');
+const accelerateBtn = document.getElementById('accelerateBtn');
+const brakeBtn = document.getElementById('brakeBtn');
+const driveValueEl = document.getElementById('driveValue');
+const driveBarEl = document.getElementById('driveBar');
 
 // Room ID comes from the URL hash: controller.html#ROOMID
 const roomFromHash = window.location.hash.replace('#', '').trim();
@@ -35,6 +39,9 @@ const state = {
   noSensorTimer: null,
   previousRelativeQuaternion: null,
   motionIntensity: 0,
+  acceleratePressed: false,
+  brakePressed: false,
+  drive: 0,
   lastSent: 0,
   sendIntervalMs: 33
 };
@@ -54,6 +61,11 @@ function updateFlightDeck(pitch = 0, roll = 0) {
   const pitchOffset = pitch * 30;
   const normalizedPitch = (pitch + 1) / 2;
   const normalizedRoll = (Math.abs(roll) + 0.05) / 1.05;
+  const normalizedDrive = (state.drive + 1) / 2;
+
+  let driveLabel = 'Idle';
+  if (state.drive > 0) driveLabel = `Accelerating ${state.drive.toFixed(2)}`;
+  if (state.drive < 0) driveLabel = `Braking ${Math.abs(state.drive).toFixed(2)}`;
 
   helmWheelEl.style.setProperty('transform', `rotate(${rollDegrees}deg)`);
   horizonBandEl.style.setProperty('transform', `translateY(${pitchOffset}px) rotate(${rollDegrees}deg)`);
@@ -62,6 +74,8 @@ function updateFlightDeck(pitch = 0, roll = 0) {
   pitchBarEl.style.setProperty('--bar-level', normalizedPitch.toFixed(3));
   rollBarEl.style.setProperty('--bar-level', Math.min(normalizedRoll, 1).toFixed(3));
   sourceValueEl.textContent = state.sensorSource;
+  driveValueEl.textContent = driveLabel;
+  driveBarEl.style.setProperty('--drive-level', normalizedDrive.toFixed(3));
 }
 
 function setStatus(message) {
@@ -104,9 +118,16 @@ function getCurrentDeviceQuaternion() {
   return deviceQuaternion.clone();
 }
 
-function sendMotion() {
+function updateDriveInput() {
+  state.drive = clamp((state.acceleratePressed ? 1 : 0) - (state.brakePressed ? 1 : 0), -1, 1);
+  accelerateBtn.dataset.active = state.acceleratePressed ? 'true' : 'false';
+  brakeBtn.dataset.active = state.brakePressed ? 'true' : 'false';
+  updateFlightDeck(normalizeTilt(state.beta - (state.baselineBeta ?? state.beta)), normalizeTilt(state.gamma - (state.baselineGamma ?? state.gamma)));
+}
+
+function sendMotion(force = false) {
   const now = performance.now();
-  if (now - state.lastSent < state.sendIntervalMs) return;
+  if (!force && now - state.lastSent < state.sendIntervalMs) return;
   if (ws.readyState !== WebSocket.OPEN) return;
 
   const relativeBeta = state.beta - (state.baselineBeta ?? state.beta);
@@ -148,13 +169,14 @@ function sendMotion() {
       z: relativeQuaternion.z,
       w: relativeQuaternion.w
     },
+    drive: state.drive,
     motionIntensity: state.motionIntensity,
     timestamp: Date.now()
   }));
 
   telemetryEl.textContent =
     `raw α:${state.alpha.toFixed(1)} β:${state.beta.toFixed(1)} γ:${state.gamma.toFixed(1)}` +
-    `  |  pitch:${pitch.toFixed(2)}  roll:${roll.toFixed(2)}  thrust:${state.motionIntensity.toFixed(2)} |  src: ${state.sensorSource}`;
+    `  |  pitch:${pitch.toFixed(2)}  roll:${roll.toFixed(2)}  drive:${state.drive.toFixed(2)}  tilt:${state.motionIntensity.toFixed(2)} |  src: ${state.sensorSource}`;
 
   state.lastSent = now;
 }
@@ -237,6 +259,9 @@ function recalibrate() {
   state.baselineQuaternionInverse = null;
   state.previousRelativeQuaternion = null;
   state.motionIntensity = 0;
+  state.acceleratePressed = false;
+  state.brakePressed = false;
+  state.drive = 0;
 
   state.receivedSensorData = false;
 
@@ -259,8 +284,32 @@ function recalibrate() {
   updateFlightDeck(0, 0);
 }
 
+function bindDriveButton(button, key, isPressed) {
+  const release = () => {
+    if (!state[key]) return;
+    state[key] = false;
+    updateDriveInput();
+    sendMotion(true);
+  };
+
+  button.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    state[key] = isPressed;
+    button.setPointerCapture(event.pointerId);
+    updateDriveInput();
+    sendMotion(true);
+  });
+
+  button.addEventListener('pointerup', release);
+  button.addEventListener('pointercancel', release);
+  button.addEventListener('lostpointercapture', release);
+  button.addEventListener('contextmenu', (event) => event.preventDefault());
+}
+
 startBtn.addEventListener('click', enableMotion);
 calibrateBtn.addEventListener('click', recalibrate);
+bindDriveButton(accelerateBtn, 'acceleratePressed', true);
+bindDriveButton(brakeBtn, 'brakePressed', true);
 
 ws.addEventListener('open', () => {
   setStatus('Connected to relay');

@@ -147,6 +147,7 @@ function controllerRelayPlugin() {
                 pitch: payload.pitch,
                 roll: payload.roll,
                 quaternion: payload.quaternion,
+                drive: payload.drive,
                 motionIntensity: payload.motionIntensity,
                 timestamp: payload.timestamp
               });
