@@ -80,6 +80,9 @@ wss.on('connection', (socket, request) => {
           room: roomId,
           pitch: payload.pitch,
           roll: payload.roll,
+          quaternion: payload.quaternion,
+          drive: payload.drive,
+          motionIntensity: payload.motionIntensity,
           timestamp: payload.timestamp
         });
       }

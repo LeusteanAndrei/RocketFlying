@@ -20,6 +20,7 @@
         --roll-angle: 0deg;
         --wheel-angle: 0deg;
         --thrust-level: 0.5;
+        --drive-level: 0.5;
       }
 
       * {
@@ -385,6 +386,113 @@
         flex-wrap: wrap;
       }
 
+      .drive-module {
+        margin-top: 16px;
+        padding: 16px;
+        border-radius: 20px;
+        border: 1px solid rgba(130, 228, 255, 0.16);
+        background: linear-gradient(180deg, rgba(9, 20, 34, 0.9), rgba(4, 10, 18, 0.92));
+      }
+
+      .drive-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .drive-title {
+        margin: 0;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.18em;
+        font-size: 0.72rem;
+      }
+
+      .drive-value {
+        font-size: 1.1rem;
+        letter-spacing: 0.08em;
+      }
+
+      .drive-bar {
+        position: relative;
+        height: 12px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(130, 228, 255, 0.12);
+      }
+
+      .drive-bar::before {
+        content: "";
+        position: absolute;
+        left: 50%;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      .drive-fill {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: calc(var(--drive-level, 0.5) * 100%);
+        width: 50%;
+        transform: translateX(-100%);
+        transform-origin: right center;
+        background: linear-gradient(90deg, rgba(255, 142, 122, 0.85), rgba(130, 228, 255, 0.92), rgba(120, 255, 177, 0.92));
+        transition: left 80ms linear, transform 80ms linear;
+      }
+
+      .drive-buttons {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 14px;
+      }
+
+      .drive-button {
+        min-height: 78px;
+        border-radius: 18px;
+        border: 1px solid rgba(130, 228, 255, 0.18);
+        color: var(--text);
+        background: linear-gradient(180deg, rgba(16, 37, 56, 0.95), rgba(7, 17, 28, 0.95));
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+        touch-action: none;
+        user-select: none;
+      }
+
+      .drive-button strong {
+        display: block;
+        font-size: 1rem;
+        letter-spacing: 0.08em;
+      }
+
+      .drive-button span {
+        display: block;
+        margin-top: 6px;
+        font-size: 0.74rem;
+        color: var(--muted);
+        letter-spacing: 0.1em;
+      }
+
+      .drive-button[data-active="true"] {
+        border-color: rgba(255, 211, 110, 0.42);
+        box-shadow:
+          0 0 0 1px rgba(255, 211, 110, 0.18),
+          inset 0 0 22px rgba(255, 211, 110, 0.12);
+      }
+
+      .drive-button.accelerate[data-active="true"] {
+        background: linear-gradient(180deg, rgba(15, 63, 54, 0.96), rgba(7, 26, 24, 0.96));
+      }
+
+      .drive-button.brake[data-active="true"] {
+        background: linear-gradient(180deg, rgba(68, 31, 32, 0.96), rgba(30, 10, 12, 0.96));
+      }
+
       button {
         flex: 1 1 150px;
         border: 0;
@@ -498,8 +606,28 @@
           <button id="calibrateBtn" type="button">Recalibrate</button>
         </div>
 
+        <section class="drive-module" aria-label="Acceleration and brake controls">
+          <div class="drive-header">
+            <p class="drive-title">Drive Module</p>
+            <div id="driveValue" class="drive-value">Idle</div>
+          </div>
+          <div class="drive-bar">
+            <div id="driveBar" class="drive-fill"></div>
+          </div>
+          <div class="drive-buttons">
+            <button id="accelerateBtn" class="drive-button accelerate" type="button" data-active="false">
+              <strong>Accelerate</strong>
+              <span>Hold to build speed</span>
+            </button>
+            <button id="brakeBtn" class="drive-button brake" type="button" data-active="false">
+              <strong>Brake</strong>
+              <span>Hold to slow down</span>
+            </button>
+          </div>
+        </section>
+
         <div id="telemetry" class="telemetry">pitch: 0.00 | roll: 0.00</div>
-        <div class="small">Hold the phone like a ship yoke. Recalibrate when your neutral hand position changes, then steer with small, deliberate tilts.</div>
+        <div class="small">Hold the phone like a ship yoke. Recalibrate when your neutral hand position changes, steer with small tilts, and hold Accelerate or Brake to control forward speed.</div>
       </main>
     </div>
     <script type="module" src="/src/controller.js"></script>

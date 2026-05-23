@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import QRCode from 'qrcode';
 import { starMaterialUniforms } from './starField';
+import { speedLineUniforms } from './speedLines';
 import { ChangedShipPos, ship } from './scene';
 
 export function InputListener(camera, renderer) {
@@ -12,11 +13,27 @@ export function InputListener(camera, renderer) {
     horizontal: 0,
     targetVertical: 0,
     targetHorizontal: 0,
+    drive: 0,
+    targetDrive: 0,
+    forwardVelocity: 0,
     motionIntensity: 0,
     targetMotionIntensity: 0,
     speed: 0.12,
     smoothing: 0.14,
     speedSmoothing: 0.12,
+    driveSmoothing: 0.18,
+    accelerationPerFrame: 0.010,
+    brakingPerFrame: 0.018,
+    dragPerFrame: 0.992,
+    maxForwardVelocity: 0.34,
+    minThrottleSpeedMultiplier: 0.85,
+    maxThrottleSpeedMultiplier: 4.2,
+    minCameraThrottleStep: 0.08,
+    maxCameraThrottleStep: 0.22,
+    defaultStarSpeed: starMaterialUniforms.speed.value,
+    defaultSpeedLineAnimation: speedLineUniforms.speedLineAnimation.value,
+    defaultSpeedLineMap: speedLineUniforms.speedLineMap.value,
+    defaultSpeedLinePower: speedLineUniforms.speedLinePower.value,
     minSpeedMultiplier: 0.25,
     maxSpeedMultiplier: 3.2,
     targetQuaternion: new THREE.Quaternion(),
@@ -109,7 +126,7 @@ export function InputListener(camera, renderer) {
       `<strong>Phone Controller</strong> — ${statusMessage}`,
       `Room: <strong>${roomId}</strong>`,
       `Controllers connected: ${remoteMotion.connectedControllers}`,
-      `vertical: ${remoteMotion.vertical.toFixed(3)} | horizontal: ${remoteMotion.horizontal.toFixed(3)} | thrust: ${remoteMotion.motionIntensity.toFixed(2)}`,
+      `vertical: ${remoteMotion.vertical.toFixed(3)} | horizontal: ${remoteMotion.horizontal.toFixed(3)} | drive: ${remoteMotion.drive.toFixed(2)} | speed: ${remoteMotion.forwardVelocity.toFixed(3)}`,
       `<span style="font-size:11px;opacity:0.7">Scan the QR code on your phone, then accept the local HTTPS certificate warning once if the browser asks.</span>`
     ].join('<br>');
   }
@@ -144,6 +161,7 @@ export function InputListener(camera, renderer) {
         if (payload.type === 'motion') {
           remoteMotion.targetVertical = Number(payload.pitch) || 0;
           remoteMotion.targetHorizontal = Number(payload.roll) || 0;
+          remoteMotion.targetDrive = THREE.MathUtils.clamp(Number(payload.drive) || 0, -1, 1);
           remoteMotion.targetMotionIntensity = Number(payload.motionIntensity) || 0;
 
           if (payload.quaternion) {
@@ -165,6 +183,9 @@ export function InputListener(camera, renderer) {
           remoteMotion.horizontal = 0;
           remoteMotion.targetVertical = 0;
           remoteMotion.targetHorizontal = 0;
+          remoteMotion.drive = 0;
+          remoteMotion.targetDrive = 0;
+          remoteMotion.forwardVelocity = 0;
           remoteMotion.motionIntensity = 0;
           remoteMotion.targetMotionIntensity = 0;
           remoteMotion.targetQuaternion.identity();
@@ -209,6 +230,7 @@ export function InputListener(camera, renderer) {
   function applyRemoteMotionMovement() {
     remoteMotion.vertical += (remoteMotion.targetVertical - remoteMotion.vertical) * remoteMotion.smoothing;
     remoteMotion.horizontal += (remoteMotion.targetHorizontal - remoteMotion.horizontal) * remoteMotion.smoothing;
+    remoteMotion.drive += (remoteMotion.targetDrive - remoteMotion.drive) * remoteMotion.driveSmoothing;
     remoteMotion.motionIntensity += (remoteMotion.targetMotionIntensity - remoteMotion.motionIntensity) * remoteMotion.speedSmoothing;
 
     if (ship && remoteMotion.hasQuaternion) {
@@ -227,10 +249,78 @@ export function InputListener(camera, renderer) {
     );
     const dynamicSpeed = remoteMotion.speed * speedMultiplier;
 
-    moveOnScreenAxes(
-      -remoteMotion.horizontal * dynamicSpeed,
-      -remoteMotion.vertical * dynamicSpeed
+    if (remoteMotion.drive > 0.01) {
+      remoteMotion.forwardVelocity += remoteMotion.drive * remoteMotion.accelerationPerFrame;
+    } else if (remoteMotion.drive < -0.01) {
+      remoteMotion.forwardVelocity += remoteMotion.drive * remoteMotion.brakingPerFrame;
+    } else {
+      remoteMotion.forwardVelocity *= remoteMotion.dragPerFrame;
+    }
+
+    remoteMotion.forwardVelocity = THREE.MathUtils.clamp(
+      remoteMotion.forwardVelocity,
+      0,
+      remoteMotion.maxForwardVelocity
     );
+
+    if (remoteMotion.forwardVelocity < 0.0005) {
+      remoteMotion.forwardVelocity = 0;
+    }
+
+    const normalizedSpaceSpeed = THREE.MathUtils.clamp(
+      remoteMotion.forwardVelocity / remoteMotion.maxForwardVelocity,
+      0,
+      1
+    );
+    const boostedSpaceSpeed = 1 - Math.pow(1 - normalizedSpaceSpeed, 2);
+    const throttleSpeedMultiplier = THREE.MathUtils.lerp(
+      remoteMotion.minThrottleSpeedMultiplier,
+      remoteMotion.maxThrottleSpeedMultiplier,
+      boostedSpaceSpeed
+    );
+    const cameraThrottleStep = THREE.MathUtils.lerp(
+      remoteMotion.minCameraThrottleStep,
+      remoteMotion.maxCameraThrottleStep,
+      Math.max(boostedSpaceSpeed, Math.abs(remoteMotion.drive))
+    );
+
+    moveOnScreenAxes(
+      -remoteMotion.horizontal * dynamicSpeed * throttleSpeedMultiplier,
+      -remoteMotion.vertical * dynamicSpeed * throttleSpeedMultiplier
+    );
+
+    if (Math.abs(remoteMotion.drive) > 0.01) {
+      controls.moveForward(-remoteMotion.drive * cameraThrottleStep);
+      ChangedShipPos();
+    }
+
+    if (remoteMotion.connectedControllers > 0 || remoteMotion.forwardVelocity > 0 || Math.abs(remoteMotion.targetDrive) > 0.01) {
+      starMaterialUniforms.speed.value = THREE.MathUtils.lerp(
+        remoteMotion.defaultStarSpeed,
+        8.5,
+        boostedSpaceSpeed
+      );
+      speedLineUniforms.speedLineAnimation.value = THREE.MathUtils.lerp(
+        remoteMotion.defaultSpeedLineAnimation,
+        82,
+        boostedSpaceSpeed
+      );
+      speedLineUniforms.speedLineMap.value = THREE.MathUtils.lerp(
+        remoteMotion.defaultSpeedLineMap,
+        0.82,
+        boostedSpaceSpeed
+      );
+      speedLineUniforms.speedLinePower.value = THREE.MathUtils.lerp(
+        remoteMotion.defaultSpeedLinePower,
+        1.75,
+        boostedSpaceSpeed
+      );
+    } else {
+      starMaterialUniforms.speed.value = remoteMotion.defaultStarSpeed;
+      speedLineUniforms.speedLineAnimation.value = remoteMotion.defaultSpeedLineAnimation;
+      speedLineUniforms.speedLineMap.value = remoteMotion.defaultSpeedLineMap;
+      speedLineUniforms.speedLinePower.value = remoteMotion.defaultSpeedLinePower;
+    }
   }
 
     controls.addEventListener('change', () => {
